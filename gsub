@@ -39,11 +39,11 @@
     $nproc = 0;
     $walltime = "00:00:00";
     $nlinda = 0;
-    $g_type = "gdv";
-    $g_module = "gdv";
+    $g_type = "g16";
+    $g_module = "g16reva03_lcpu";
     if($username eq ""){
-      $g_type = "g16";
-      $g_module = "g16";
+      $g_type = "gdv";
+      $g_module = "gdv";
     }
 #
 #   Load option switches and file names from the command line. Then, set
