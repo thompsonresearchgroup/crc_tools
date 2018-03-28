@@ -1,0 +1,4 @@
+#!/bin/bash
+
+egrep ' Low frequencies --| Frequencies --' $1 | grep -v '\\\\' | head -5
+

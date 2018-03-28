@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+#
+# This script is used to process a PBS generated host list for use in
+# Linda jobs with Gaussian calculations on the CRC. Two arguments are
+# required -- (1) the name of the PBS host file; and (2) the number of
+# share-memory processors requested for EACH Linda worker. The output of
+# this script is a line that can be used in the Gaussian command-line
+# invocation to specify Linda workers.
+#
+# Lee M. Thompson
+# University of Louisville
+# lee.thompson.1@louisville.edu
+# 
+# This script is modified for the CRC from pre-linda for SGE written by
+# Hrant P. Hratchian
+# University of California, Merced
+# hhratchian@ucmerced.edu
+#
+#
+#
+#   Pick-up argument name.
+#
+    $filename = $ARGV[0];
+    chomp($filename);
+    $nsmp = $ARGV[1];
+    chomp($nsmp);
+    $cores_avail = $ARGV[2];
+    chomp($cores_avail);
+#
+#   Read through the PBS generated file and build the Gaussian appropriate
+#   Linda workers command.
+#
+    @temp = `cat $filename`;
+    foreach $current_line (@temp){
+      chomp($current_line);
+      if($current_line ne $node_name){
+        $node_name = $current_line;
+        $nworkers = $cores_avail/$nsmp;
+#        push(@linda_workers,"$node_name-ib:$nworkers");
+        push(@linda_workers,"$node_name:$nworkers");
+      }else{
+        next;
+     }
+    }
+    $linda_workers_line = join "," , @linda_workers;
+    print "$linda_workers_line";

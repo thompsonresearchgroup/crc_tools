@@ -1,0 +1,50 @@
+#!/usr/bin/perl
+#
+# This script is used to print a node name on the CRC. There are two
+# control switches. The first switch (-t) is for terse printing. The second
+# switch (-d) requests that the current date and time be printed together
+# with the node name.
+#
+# Lee M. Thompson
+# University of Louisville
+# lee.thompson.1@louisville.edu
+# 
+# This script is modified for the CRC from pinconning_node_print written by
+# Hrant P. Hratchian
+# University of California, Merced
+# hhratchian@ucmerced.edu
+#
+#
+#   Load option switches.
+#
+    $do_terse = 0;
+    $do_date = 0;
+    foreach $temp (@ARGV){
+      chomp($temp);
+      if($temp =~ /^-t$/i){
+        $do_terse = 1;
+      }elsif($temp =~ /^-d$/i){
+        $do_date = 1;
+#
+#     Unknown switch...
+      }elsif($temp =~ /^(.*)/){
+        die "\n\nUnknown switch sent to crc_node_print: $temp\n\n";
+      }
+    }
+#
+#   Load the hostname and date.
+#
+    chomp($my_hostname = `hostname`);
+    chomp($my_date = `date`);
+#
+#   Print the requested output.
+#
+    if($do_terse){
+      print "$my_hostname\n";
+      if($do_date){print "$my_date\n";}
+    }else{
+      print "************************************************************\n";
+      print "This is $my_hostname of the Cardinal research cluster.\n";
+      if($do_date){print "Date: $my_date\n";}
+      print "************************************************************\n";
+    }

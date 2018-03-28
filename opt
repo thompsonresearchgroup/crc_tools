@@ -1,0 +1,4 @@
+#!/bin/bash
+
+egrep ' out of| SCF Don| Converged| NO | YES| exceeded' $1 | grep -v '\\\\'
+
