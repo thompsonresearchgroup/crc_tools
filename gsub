@@ -74,8 +74,8 @@
         $g_type = "gdv";
         $g_module = "gdv";
       }elsif($temp =~ /^-gt$/i){
-        $g_type = "gdv -exedir=\$HOME/gauss:\$HOME/gauss/exe-dir:\$GAUSS_EXEDIR";
-        $g_module = "gdv";
+        $g_type = "g16 -exedir=\$HOME/gauss:\$HOME/gauss/exe-dir:\$GAUSS_EXEDIR";
+        $g_module = "g16reva03_lcpu";
       }elsif($temp =~ /^-g09$/i){
         $g_type = "g09";
         $g_module = "g09";
@@ -218,7 +218,7 @@
     }
 #
 #   Loop through @filelist and process each job one-at-a-time. This loop
-#   compiles a complete list of CHK, RWF, and @ files that must be moved to
+#   compiles a complete list of CHK, RWF, MAT and @ files that must be moved to
 #   the local node's disk and then moved back after the Gaussian work is
 #   complete. This is also the block of code that ensures the input files
 #   are compliant with our submission requirements.
@@ -226,7 +226,7 @@
     foreach $input_file (@filelist){
       chomp($input_file);
       @current_at = ();
-      ($current_chk,$current_rwf,@current_at) =
+      ($current_chk,$current_rwf,$current_mat,@current_at) =
         &gauss_input_file_check($input_file);
       push(@inputfiles,$input_file);
       @chkfiles_temp = split /,/, $current_chk;
@@ -241,6 +241,13 @@
         $rwffiles_to_return{$rwffile} += 1;
         if(-e $rwffile){
           $rwffiles_to_send{$rwffile} += 1;
+        }
+      }
+      @matfiles_temp = split /,/, $current_mat;
+      foreach $matfile (@matfiles_temp){
+        $matfiles_to_return{$matfile} += 1;
+        if(-e $matfile){
+          $matfiles_to_send{$matfile} += 1;
         }
       }
       foreach $atfile (@current_at){
@@ -269,6 +276,9 @@
       push(@sendfiles,$key);
     }
     while(($key,$value)=each %rwffiles_to_send){
+      push(@sendfiles,$key);
+    }
+    while(($key,$value)=each %matfiles_to_send){
       push(@sendfiles,$key);
     }
     while(($key,$value)=each %atfiles_to_send){
@@ -363,7 +373,7 @@
 #
 #   This routine is used to read through a Gaussian input file to check for
 #   compliance on the Blacklight. Also, this subroutine will return the
-#   name(s) of CHK, RWF, and/or @-files.
+#   name(s) of CHK, RWF, MAT and/or @-files.
 #
 #   If an unknown link0 command is found, this subroutine drops an error
 #   message and the script dies.
@@ -375,6 +385,8 @@
 #           function always includes the extension ".chk");
 #       2.  Name of the read-write file; and (the value returned by this
 #           function always includes the extension ".rwf");
+#       2.  Name of the matrix file; and (the value returned by this
+#           function always includes the extension ".mat");
 #       3.  List of at-files.
 #
 #   Note that requests for Linda within the Gaussian input file are NOT
@@ -385,11 +397,11 @@
         die "\nWrong number of parameters sent to Routine gauss_input_file_check.\n\n";
       }
       my($infile) = @_;
-      my($chkfile,$rwffile,@AtFiles);
-      my($current_line,$temp,@chkfile_list,@rwffile_list);
+      my($chkfile,$rwffile,$matfile,@AtFiles);
+      my($current_line,$temp,@chkfile_list,@rwffile_list,@matfile_list);
 #
 #     Open and read through the Gaussian input file to ensure compliane of
-#     the link0 command block and to load the names of CHK, RWF, and
+#     the link0 command block and to load the names of CHK, RWF, MAT and
 #     @-files.
 #
       open (INFILE, "$infile");
@@ -408,6 +420,10 @@
           push(@rwffile_list,$1);
         }elsif ($current_line =~ /^\s*\%rwf\s*\=\s*(\S*)\s*$/i){
           push(@rwffile_list,"$1.rwf");
+        }elsif ($current_line =~ /^\s*\%oldmatrix\s*\=\s*(\S*.chk)\s*$/i){
+          push(@matfile_list,$1);
+        }elsif ($current_line =~ /^\s*\%oldmatrix\s*\=\s*(\S*)\s*$/i){
+          push(@matfile_list,"$1.mat");
         }elsif ($current_line =~ /^\s*\%kjob .*$/i){
         }elsif ($current_line =~ /^\s*\%subst .*$/i){
         }elsif ($current_line =~ /^\s*\@(\S+)\s*$/){
@@ -425,10 +441,11 @@
 #
       $chkfile = join ",",@chkfile_list;
       $rwffile = join ",",@rwffile_list;
+      $matfile = join ",",@matfile_list;
 #
 #     Return to the calling program.
 #
-      return ($chkfile,$rwffile,@AtFiles);
+      return ($chkfile,$rwffile,$matfile,@AtFiles);
     }
 
 
@@ -502,8 +519,8 @@ by the script version.
 
 =item B<-g09>
 
-These switches control whether Gdv, gt (Gdv with test code in
-$HOME/gauss:$HOME/gauss/exe-dir:$GAUSS_EXEDIR), G16, or G09 is used. Gdv is run
+These switches control whether Gdv, gt (G16 with test code in
+$HOME/gauss:$HOME/gauss/exe-dir:$GAUSS_EXEDIR), G16, or G09 is used. G16 is run
 by default. Other switches are available to request specific older versions
 of Gaussian. These switches include B<-g09b01>.
 
