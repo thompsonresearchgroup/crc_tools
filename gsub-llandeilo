@@ -39,8 +39,10 @@
     $nproc = 0;
     $walltime = "00:00:00";
     $g_type = "g16";
+    $g_module = "gaussian/g16-a03";
     if($username eq ""){
       $g_type = "gdv";
+      $g_module = "gdv";
     }
 #
 #   Load option switches and file names from the command line. Then, set
@@ -67,10 +69,13 @@
         $walltime=$1;
       }elsif($temp =~ /^-gdv$/i){
         $g_type = "gdv";
+        $g_module = "gdv";
       }elsif($temp =~ /^-gt$/i){
         $g_type = "g16 -exedir=\$HOME/gauss:\$HOME/gauss/exe-dir:\$GAUSS_EXEDIR";
+        $g_module = "gaussian/g16-a03";
       }elsif($temp =~ /^-g16$/i){
         $g_type = "g16";
+        $g_module = "gaussian/g16-a03";
 #
 #     Submission & queue controls...
       }elsif($temp =~ /^-sub$/i){
@@ -244,7 +249,8 @@
     print QSUBFILE "#PBS -l walltime=$walltime\n";
     print QSUBFILE "#PBS -l ncpus=$nproc\n";
     print QSUBFILE "#\n";
-    print QSUBFILE "# Prevent core files.\n";
+    print QSUBFILE "# Set up the Gaussian environment and prevent core files.\n";
+    print QSUBFILE "module load $g_module\n";
     print QSUBFILE "ulimit -c 0\n";
     print QSUBFILE "#\n";
     print QSUBFILE "# Set the Gaussian scratch directory to the job-specific SCRATCH directory.\n";
