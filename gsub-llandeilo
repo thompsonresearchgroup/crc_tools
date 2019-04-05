@@ -1,0 +1,595 @@
+#!/usr/bin/perl
+#
+# This script is used to submit Gaussian calculations on the Llandeilo.
+#
+# When using this script the number of processors and the amount of memory
+# to be used by Gaussian should NOT be defined in the Gaussian input file.
+# Instead, the user should define these values as command line option
+# switches to this script.
+#
+# The full set of available switches can be seen by running perldoc on this
+# script, which will interpret the POD block that follows these comments.
+# Specifically, run the following at the command line:
+#       perldoc gsub
+#
+# Lee M. Thompson
+# University of Louisville
+# lee.thompson.1@louisville.edu
+# 
+# This script is modified for the Llandeilo from gub for pinconning written by
+# Hrant P. Hratchian
+# University of California, Merced
+# hhratchian@ucmerced.edu
+#
+#
+#
+#   Set-up communication with modules.
+#
+    use Cwd;
+#
+#   Get the executing username and then set option defaults, including some
+#   that may be user-dependent.
+#
+    $username = getpwuid( $< );
+    chomp($username);
+    $do_submission = 1;
+    $run_in_scratch = 0;
+    $queue_flag = "workq";
+    $mem_amount = "0GB";
+    $nproc = 0;
+    $walltime = "00:00:00";
+    $g_type = "g16";
+    $g_module = "gaussian/g16-a03";
+    if($username eq ""){
+      $g_type = "gdv";
+      $g_module = "gdv";
+    }
+#
+#   Load option switches and file names from the command line. Then, set
+#   the .sub file name.
+#
+    foreach $temp (@ARGV){
+      chomp($temp);
+#
+#     General program options...
+      if($temp =~ /^-h$/i){
+        exec("perldoc","gsub");
+        exit 0;
+      }elsif($temp =~ /^-v$/i){
+        print "\ngsub for Llandeilo.\n";
+        print "Last modified by LMT on October 28, 2018.\n\n";
+        exit 0;
+#
+#     Gaussian job setting controls...
+      }elsif($temp =~ /^-mem=(\d+[a-zA-Z][a-zA-Z])$/i){
+        $mem_amount = $1;
+      }elsif($temp =~ /^-nproc=(\d+)$/i){
+        $nproc=$1;
+      }elsif($temp =~ /^-walltime=(\d+:\d+:\d+)$/i){
+        $walltime=$1;
+      }elsif($temp =~ /^-gdv$/i){
+        $g_type = "gdv";
+        $g_module = "gdv";
+      }elsif($temp =~ /^-gt$/i){
+        $g_type = "g16 -exedir=\$HOME/gauss:\$HOME/gauss/exe-dir:\$GAUSS_EXEDIR";
+        $g_module = "gaussian/g16-a03";
+      }elsif($temp =~ /^-g16$/i){
+        $g_type = "g16";
+        $g_module = "gaussian/g16-a03";
+#
+#     Submission & queue controls...
+      }elsif($temp =~ /^-sub$/i){
+        $do_submission = 1;
+      }elsif($temp =~ /^-nosub$/i){
+        $do_submission = 0;
+      }elsif($temp =~ /^-workq$/i){
+        $queue_flag = "workq";
+      }elsif($temp =~ /^-runscratch$/i){
+        $run_in_scratch = 1;
+      }elsif($temp =~ /^-norunscratch$/i){
+        $run_in_scratch = 0;
+      }elsif($temp =~ /^-name=([a-zA-Z]\S+)$/i){
+        $qstat_name=$1;
+#
+#     Unknown switch...
+      }elsif($temp =~ /^-(.*)/){
+        die "\n\nUnknown switch sent to gsub: $temp\n\n";
+#
+#     Input file found...
+      }else{
+        push(@filelist,$temp);
+      }
+    }
+    if(@filelist < 1){die "\nNo GAUSSIAN input files given!\nn
+\n"}
+    $qsub_file = $filelist[0];
+    unless($qsub_file =~ s/\.(?:gjf|com)/.sub/){
+      print "\n\nNOTE: Appending .sub\n\n";
+      $qsub_file .= ".sub";
+    }
+#
+#   Set NProcShared and Memory defaults based on the selected queue.
+#
+    if($walltime=="00:00:00"){
+      if($queue_flag =~ "workq"){
+        $walltime = "48:00:00";
+      }else{
+        $walltime = "48:00:00";
+      }
+    }
+
+    if($nproc==0){
+      if($queue_flag =~ "workq"){
+        $nproc = 20;
+      }else{
+        $nproc = 20;
+      }
+    }
+
+    if($mem_amount=="0GB"){
+      if($queue_flag =~ "workq"){
+        $mem_amount = "90GB";
+      }else{
+        $mem_amount = "90GB";
+      }
+    }
+#
+#   Set the name of the .err file and the qstat job name.
+#
+    $qerr_file = $filelist[0];
+    unless($qerr_file =~ s/\.(?:gjf|com)/.err/){
+      print "\n\nNOTE: Appending .err\n\n";
+      $qerr_file .= ".err";
+    }
+    unless($qstat_name){$qstat_name = "$filelist[0]";}
+    print "qsub JOB NAME is $qstat_name.\n";
+#
+#   Determine the memory setting to send to SGE.
+#
+    $mem_requirement = $mem_amount;
+    $mem_requirement =~ s/mb$/M/i;
+    $mem_requirement =~ s/gb$/G/i;
+#
+#   Put together the list of Gaussian command line switches controlling
+#   resource use.
+#
+    $g_resources = "-m=$mem_amount -p=$nproc";
+#
+#   Process the list of input files and build the %working_directory hash,
+#   which gives the working directory to use when submitting each Gaussian
+#   job via remote_submit.
+#
+    chomp($my_cwd = cwd);
+    $my_cwd =~ s/\/\//\//g;
+    for ($i=0;$i<@filelist;$i++){
+      $filelist[$i] =~ s/$my_cwd\///;
+      if($filelist[$i] =~ /\//){
+        die "\n\nInput files must be in the CWD.\n\n";
+      }
+    }
+#
+#   Loop through @filelist and process each job one-at-a-time. This loop
+#   compiles a complete list of CHK, RWF, MAT and @ files that must be moved to
+#   the local node's disk and then moved back after the Gaussian work is
+#   complete. This is also the block of code that ensures the input files
+#   are compliant with our submission requirements.
+#
+    foreach $input_file (@filelist){
+      chomp($input_file);
+      @current_at = ();
+      ($current_chk,$current_rwf,$current_mat,@current_at) =
+        &gauss_input_file_check($input_file);
+      push(@inputfiles,$input_file);
+      @chkfiles_temp = split /,/, $current_chk;
+      foreach $chkfile (@chkfiles_temp){
+        $chkfiles_to_return{$chkfile} += 1;
+        if(-e $chkfile){
+          $chkfiles_to_send{$chkfile} += 1;
+        }
+      }
+      @rwffiles_temp = split /,/, $current_rwf;
+      foreach $rwffile (@rwffiles_temp){
+        $rwffiles_to_return{$rwffile} += 1;
+        if(-e $rwffile){
+          $rwffiles_to_send{$rwffile} += 1;
+        }
+      }
+      @matfiles_temp = split /,/, $current_mat;
+      foreach $matfile (@matfiles_temp){
+        $matfiles_to_return{$matfile} += 1;
+        if(-e $matfile){
+          $matfiles_to_send{$matfile} += 1;
+        }
+      }
+      foreach $atfile (@current_at){
+        unless(-e $atfile){die "\n\n@-file $atfile is missing!\n\n";}
+        $atfiles_to_send{$atfile} += 1;
+      }
+      $log_file = $input_file;
+      unless($log_file =~ s/\.(?:gjf|com)/.log/){
+        $log_file .= ".log";
+      }
+#
+#     Add this job to the command list of Gaussian executions.
+      push(@gauss_run,"$g_type $g_resources < $input_file >> $log_file && sed -i \'s/Dipole orientation:/Dipole oientation:/\' $log_file");
+    }
+#
+#   Build two arrays that are used to handle file transfer to/from the
+#   compute node's local disk. The first array, @sendfiles, lists all the
+#   files that must be moved TO the local disk before Gaussian is executed.
+#   The second array, @removefiles, lists all of the files that should be
+#   removed from the temperary directory before copying all files back to
+#   the submission working directory.
+#
+    @sendfiles = @inputfiles;
+    @removefiles = @inputfiles;
+    while(($key,$value)=each %chkfiles_to_send){
+      push(@sendfiles,$key);
+    }
+    while(($key,$value)=each %rwffiles_to_send){
+      push(@sendfiles,$key);
+    }
+    while(($key,$value)=each %matfiles_to_send){
+      push(@sendfiles,$key);
+    }
+    while(($key,$value)=each %atfiles_to_send){
+      push(@sendfiles,$key);
+      push(@removefiles,$key);
+    }
+#
+#   Write the submission file...
+#
+    open  QSUBFILE,"> $qsub_file";
+    print QSUBFILE "#! /bin/bash\n";
+    print QSUBFILE "#PBS -q $queue_flag\n";
+    print QSUBFILE "#PBS -N Job-$qstat_name\n";
+    print QSUBFILE "#PBS -j oe\n";
+    print QSUBFILE "#PBS -o $qstat_name.qlog\n";
+    print QSUBFILE "#PBS -l mem=$mem_requirement\n";
+    print QSUBFILE "#PBS -l walltime=$walltime\n";
+    print QSUBFILE "#PBS -l ncpus=$nproc\n";
+    print QSUBFILE "#\n";
+    print QSUBFILE "# Set up the Gaussian environment and prevent core files.\n";
+    print QSUBFILE "module load $g_module\n";
+    print QSUBFILE "ulimit -c 0\n";
+    print QSUBFILE "#\n";
+    print QSUBFILE "# Set the Gaussian scratch directory to the job-specific SCRATCH directory.\n";
+    print QSUBFILE "export MY_SCRATCH=\"/tmp/\$USER\"\n";
+    print QSUBFILE "export GAUSS_SCRDIR=\"\$MY_SCRATCH\"\n";
+    if($run_in_scratch){
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Copy files to the scratch directory and then move there.\n";
+      print QSUBFILE "cd \$PBS_O_WORKDIR\n";
+      foreach $temp (@sendfiles){
+        print QSUBFILE "cp $temp \$MY_SCRATCH\/\n";
+      }
+      print QSUBFILE "cd \$MY_SCRATCH\n";
+    }else{
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Move to the submission script directory.\n";
+      print QSUBFILE "cd \$PBS_O_WORKDIR\n";
+    }
+    print QSUBFILE "#\n";
+    print QSUBFILE "# Run Gaussian...\n";
+    foreach $temp (@gauss_run){
+      chomp($temp);
+      print QSUBFILE "$temp\n";
+    }
+    if($run_in_scratch){
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Remove files that we don't want to copy back to the original submission working directory.\n";
+      foreach $temp (@removefiles){
+        chomp($temp);
+        print QSUBFILE "rm -f $temp\n";
+      }
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Return to the original working directory and copy back all of the Gaussian files.\n";
+      print QSUBFILE "cd \$PBS_O_WORKDIR\n";
+      print QSUBFILE "cp -f \$MY_SCRATCH\/\* .\n";
+    }
+    close QSUBFILE;
+#
+#   Set-up command line to submit the job to PBS and then submit it...
+#
+    if($do_submission){
+      $sys_cmd = "qsub $qsub_file";
+      exec "$sys_cmd";
+      print "Job $qstat_name submitted to the queue.\n";
+    }else{
+      print "Job NOT submitted. QSub file $qsub_file has been prepared.\n";
+    }
+
+
+####################################################################
+#
+#   Subroutine gauss_input_file_check
+#
+####################################################################
+
+    sub gauss_input_file_check{
+#
+#   This routine is used to read through a Gaussian input file to check for
+#   compliance on the Blacklight. Also, this subroutine will return the
+#   name(s) of CHK, RWF, MAT and/or @-files.
+#
+#   If an unknown link0 command is found, this subroutine drops an error
+#   message and the script dies.
+#
+#   As INPUT, this routine takes the name of the Gaussian input file.
+#
+#   As OUTPUT, this routine returns (in this order):
+#       1.  Name of the checkpoint file (the value returned by this
+#           function always includes the extension ".chk");
+#       2.  Name of the read-write file; and (the value returned by this
+#           function always includes the extension ".rwf");
+#       2.  Name of the matrix file; and (the value returned by this
+#           function always includes the extension ".mat");
+#       3.  List of at-files.
+#
+#   Note that requests for Linda within the Gaussian input file are NOT
+#   understood by this routine and are ignored.
+#
+      use strict;
+      if(@_ != 1){
+        die "\nWrong number of parameters sent to Routine gauss_input_file_check.\n\n";
+      }
+      my($infile) = @_;
+      my($chkfile,$rwffile,$matfile,@AtFiles);
+      my($current_line,$temp,@chkfile_list,@rwffile_list,@matfile_list);
+#
+#     Open and read through the Gaussian input file to ensure compliane of
+#     the link0 command block and to load the names of CHK, RWF, MAT and
+#     @-files.
+#
+      open (INFILE, "$infile");
+      while (<INFILE>) {
+        $current_line = $_;
+        chomp($current_line);
+        if ($current_line =~ /^\s*\%chk\s*\=\s*(\S*.chk)\s*$/i){
+          push(@chkfile_list,$1);
+        }elsif ($current_line =~ /^\s*\%chk\s*\=\s*(\S*)\s*$/i){
+          push(@chkfile_list,"$1.chk");
+        }elsif ($current_line =~ /^\s*\%oldchk\s*\=\s*(\S*.chk)\s*$/i){
+          push(@chkfile_list,$1);
+        }elsif ($current_line =~ /^\s*\%oldchk\s*\=\s*(\S*)\s*$/i){
+          push(@chkfile_list,"$1.chk");
+        }elsif ($current_line =~ /^\s*\%rwf\s*\=\s*(\S*.rwf)\s*$/i){
+          push(@rwffile_list,$1);
+        }elsif ($current_line =~ /^\s*\%rwf\s*\=\s*(\S*)\s*$/i){
+          push(@rwffile_list,"$1.rwf");
+        }elsif ($current_line =~ /^\s*\%oldmatrix\s*\=\s*(\S*.chk)\s*$/i){
+          push(@matfile_list,$1);
+        }elsif ($current_line =~ /^\s*\%oldmatrix\s*\=\s*(\S*)\s*$/i){
+          push(@matfile_list,"$1.mat");
+        }elsif ($current_line =~ /^\s*\%kjob .*$/i){
+        }elsif ($current_line =~ /^\s*\%subst .*$/i){
+        }elsif ($current_line =~ /^\s*\@(\S+)\s*$/){
+          $temp = $1;
+          $temp =~ s/\/N\s*$//;
+          push(@AtFiles,$temp);
+          print "Found \@-file: -->$temp<--\n";
+        }elsif ($current_line =~ /^\s*\%/){
+          die "\n\nInvalid link0 line found.\n\t$current_line\n\n";
+        }
+      }
+      close (INFILE);
+#
+#     Form ',' delimited lists from temparary lists formed above.
+#
+      $chkfile = join ",",@chkfile_list;
+      $rwffile = join ",",@rwffile_list;
+      $matfile = join ",",@matfile_list;
+#
+#     Return to the calling program.
+#
+      return ($chkfile,$rwffile,$matfile,@AtFiles);
+    }
+
+
+###########################################################################
+# POD block...
+#
+=head1 NAME
+
+B<gsub> - This script is used to submit Gaussian calculations on
+the CRC. When using this script the number of processors and the amount
+of memory to be used by Gaussian should NOT be defined in the Gaussian
+input file. Instead, the user should define these values as command line
+option switches to this script.
+
+=head1 SYNOPSIS
+
+B<gsub> [I<option_list>] F<gaussian_input_files>
+
+=head1 DESCRIPTION
+
+This script takes one or more Gaussian input file names as input and
+prepares a Portable Batch Script input file to submit to the CRC's queue system.
+By default, the job is then submitted to the queue. To supress submission,
+use the -nosub option described below.
+
+=head1 OPTIONS
+
+=head2 General Program Options
+
+=over
+
+=item B<-h>
+
+Print help information.
+
+=item B<-v>
+
+Print version and modification information.
+
+=back
+
+
+=head2 Gaussian Job Options
+
+=over
+
+=item B<-mem=F<N>>
+
+This switch is used to set the memory requested by Gaussian to the value
+F<N>. When specified with this switch, the memory amount specified should
+include a unit label. For example, to request 32 GB of memory use
+B<-mem=32GB>. The default value is determined by the script version.
+
+=item B<-nproc=F<N>>
+
+This switch is used to set the number of shared-memory processors requested
+by Gaussian to the value B<F<N>>. The default value is determined by the
+script version.
+
+=item B<-gdv>
+
+=item B<-gt>
+
+=item B<-g16>
+
+=item B<-g09>
+
+These switches control whether Gdv, gt (G16 with test code in
+$HOME/gauss:$HOME/gauss/exe-dir:$GAUSS_EXEDIR), G16, or G09 is used. G16 is run
+by default. Other switches are available to request specific older versions
+of Gaussian. These switches include B<-g09b01>.
+
+=back
+
+
+=head2 Submission & Queue Control
+
+=over
+
+=item B<-sub>
+
+=item B<-nosub>
+
+These switches enable (B<-sub>) or disable (B<-nosub>) submission of the
+processed Gaussian jobs to the queue system. In both cases, a submission
+file (*.sub) is generated. A typical reason for disabling queue submission
+is for debugging or to add custom blocks of code to the submission script.
+By default, submission is enabled.
+
+=item B<-shortq>
+
+=item B<-longq>
+
+=item B<-devq>
+
+=item B<-highmemq>
+
+=item B<-gpuq>
+
+These switches are used to assign the queue to which the processed Gaussian
+jobs are submitted.
+
+=over
+
+1. The short queue (known to the queue system as F<short> and requested with the
+   switch B<-shortq>). This queue has a 24 hour wall clock limit.
+
+2. The long queue (known to the queue system as F<long> and requested with the 
+   switch B<-longq>). This queue has a 168 hour wall clock limit.
+
+3. The development queue (known to the queue system as F<dev> and requested
+   with the switch B<-devq>). This queue has a 48 wall clock limit.
+
+4. The high memory node queue (known to the queue system as F<fat> and requested
+   with the switch B<-highmemq>). This queue has a 720 hour wall clock limit.
+
+5. The GPU node queue (known to the queue system as F<gpgpu> and requested
+   with the switch B<-gpuq>). This queue has a 720 hour wall clock limit. 
+   Note that this queue is not yet implemented with Gaussian as the GPUs are
+   of insuficient capabilities.
+
+=back
+
+By default, jobs are submitted to the short queue.
+
+=item B<-runscratch>
+
+=item B<-norunscratch>
+
+These switches determine whether the job is run from within the local
+compute node scratch directory (B<-runscratch>) or from the NFS mounted
+/home/ partition (B<-norunscratch>). When a job is run in the local scratch
+directory, all files necessary for the calculations to run are copied to
+the scratch directory before running Gaussian and then copied back after
+all of the jobs complete. In either case, Gaussian scratch files are kept
+on the local scratch partition. By default, jobs are run in the local
+scratch directory.
+
+=item B<-name=F<A>>
+
+This switch is used to specify the name label given in the qstat (and
+related) tables while a job is active in the queue system. The name given
+must begin with a letter.
+
+=back
+
+
+=head1 VERSION SPECIFIC DEFAULTS
+
+Defaults specific to the B<CRC> version of B<gsub> include:
+
+=over
+
+=item B<-mem>
+
+The default memory requested (per Linda worker) is 12 GB. This is
+equivalent to using B<-mem=12GB>.
+
+=item B<-nproc>
+
+The default number of shared-memory processors is 8. This is equivalent to
+using B<-nproc=8>.
+
+=item B<-walltime>
+
+The default walltime is 24 hours. This is equivalent to using B<-walltime="24:00:00">.
+
+=back
+
+
+=head1 CURRENT VERSION
+
+Version: B<gsub> for B<F<CRC>> submissions.
+
+Latest Modification(s): September 28, 2017.
+
+
+=head1 MODIFICATION HISTORY
+
+=over
+
+=item September 28, 2017  
+
+Fix queue options bug.
+
+=item August 18, 2017  
+
+Initial version.
+
+=back
+
+
+=head1 AUTHOR
+
+=over
+
+=item Lee M. Thompson   
+
+=item University of Louisville
+
+=item Louisville, KY 40208
+
+=item lee.thompson.1@louisville.edu
+
+=back
+
+
+=cut
+###########################################################################
+
