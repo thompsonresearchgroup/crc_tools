@@ -57,7 +57,7 @@
         exit 0;
       }elsif($temp =~ /^-v$/i){
         print "\ngsub for Llandeilo.\n";
-        print "Last modified by LMT on October 28, 2018.\n\n";
+        print "Last modified by LMT on June 4, 2019.\n\n";
         exit 0;
 #
 #     Gaussian job setting controls...
@@ -211,7 +211,7 @@
       }
 #
 #     Add this job to the command list of Gaussian executions.
-      push(@gauss_run,"$g_type $g_resources < $input_file >> $log_file && sed -i \'s/Dipole orientation:/Dipole oientation:/\' $log_file");
+      push(@gauss_run,"$g_type $g_resources < $input_file > $log_file && sed -i \'s/Dipole orientation:/Dipole oientation:/\' $log_file");
     }
 #
 #   Build two arrays that are used to handle file transfer to/from the
@@ -254,7 +254,7 @@
     print QSUBFILE "ulimit -c 0\n";
     print QSUBFILE "#\n";
     print QSUBFILE "# Set the Gaussian scratch directory to the job-specific SCRATCH directory.\n";
-    print QSUBFILE "export MY_SCRATCH=\"/tmp/\$USER\"\n";
+    print QSUBFILE "export MY_SCRATCH=\"/tmp\"\n";
     print QSUBFILE "export GAUSS_SCRDIR=\"\$MY_SCRATCH\"\n";
     if($run_in_scratch){
       print QSUBFILE "#\n";
@@ -472,41 +472,20 @@ file (*.sub) is generated. A typical reason for disabling queue submission
 is for debugging or to add custom blocks of code to the submission script.
 By default, submission is enabled.
 
-=item B<-shortq>
-
-=item B<-longq>
-
-=item B<-devq>
-
-=item B<-highmemq>
-
-=item B<-gpuq>
+=item B<-workq>
 
 These switches are used to assign the queue to which the processed Gaussian
 jobs are submitted.
 
 =over
 
-1. The short queue (known to the queue system as F<short> and requested with the
-   switch B<-shortq>). This queue has a 24 hour wall clock limit.
-
-2. The long queue (known to the queue system as F<long> and requested with the 
-   switch B<-longq>). This queue has a 168 hour wall clock limit.
-
-3. The development queue (known to the queue system as F<dev> and requested
-   with the switch B<-devq>). This queue has a 48 wall clock limit.
-
-4. The high memory node queue (known to the queue system as F<fat> and requested
-   with the switch B<-highmemq>). This queue has a 720 hour wall clock limit.
-
-5. The GPU node queue (known to the queue system as F<gpgpu> and requested
-   with the switch B<-gpuq>). This queue has a 720 hour wall clock limit. 
-   Note that this queue is not yet implemented with Gaussian as the GPUs are
-   of insuficient capabilities.
+1. The work queue (known to the queue system as F<workq> and requested with the
+   switch B<-workq>). This queue has a 48 hour wall clock limit and a maximum of
+   10 jobs per user in the queue.
 
 =back
 
-By default, jobs are submitted to the short queue.
+By default, jobs are submitted to the work queue.
 
 =item B<-runscratch>
 
@@ -538,31 +517,35 @@ Defaults specific to the B<CRC> version of B<gsub> include:
 
 =item B<-mem>
 
-The default memory requested (per Linda worker) is 12 GB. This is
-equivalent to using B<-mem=12GB>.
+The default memory requested (per Linda worker) is 90 GB. This is
+equivalent to using B<-mem=90GB>.
 
 =item B<-nproc>
 
-The default number of shared-memory processors is 8. This is equivalent to
-using B<-nproc=8>.
+The default number of shared-memory processors is 20. This is equivalent to
+using B<-nproc=20>.
 
 =item B<-walltime>
 
-The default walltime is 24 hours. This is equivalent to using B<-walltime="24:00:00">.
+The default walltime is 48 hours. This is equivalent to using B<-walltime="48:00:00">.
 
 =back
 
 
 =head1 CURRENT VERSION
 
-Version: B<gsub> for B<F<CRC>> submissions.
+Version: B<gsub> for B<F<Llandeilo>> submissions.
 
-Latest Modification(s): September 28, 2017.
+Latest Modification(s): June 4, 2019.
 
 
 =head1 MODIFICATION HISTORY
 
 =over
+
+=item June 4, 2019
+
+Updated instructions for Llandeilo
 
 =item September 28, 2017  
 
