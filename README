@@ -1,6 +1,11 @@
-This directory contains tools used for submitting and examining Gaussian calculations.
-Depending on the machine you are on, you will need to soft link the correct gsub.
-Mac OSX desktop: no need to link gsub, just submit g16 directly from command line
-CRC: ln -s gsub-crc gsub
-Llandeilo: ln -s gsub-llandeilo gsub
+This directory contains tools used for submitting and examining Gaussian and Molpro 
+calculations. Depending on the machine you are on, you will need to soft link the 
+correct gsub and msub.
+ 
+Mac OSX desktop: no need to link gsub or msub, just submit g16 or molpro directly 
+                 from command line
+CRC:             ln -s gsub-crc gsub
+                 ln -s msub-crc msub
+Llandeilo:       ln -s gsub-llandeilo gsub
+                 ln -s msub-llandeilo msub
 
