@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# This script is used to submit Molpro calculations on the Llandeilo.
+# This script is used to submit Molpro calculations on the CRC.
 #
 # The full set of available switches can be seen by running perldoc on this
 # script, which will interpret the POD block that follows these comments.
@@ -29,14 +29,12 @@
     chomp($username);
     $do_submission = 1;
     $run_in_scratch = 0;
-    $queue_flag = "workq";
+    $queue_flag = "short";
     $mem_amount = "0G";
     $nproc = 0;
     $walltime = "00:00:00";
-    $m_module = "molpro/molpro-19.1";
-    if($username eq ""){
-      $m_module = "molpro/molpro";
-    }
+    $m_path = "/usr/local/molpro/2019.2.2";
+    $dx360 = 0;
 #
 #   Load option switches and file names from the command line. Then, set
 #   the .sub file name.
@@ -49,7 +47,7 @@
         exec("perldoc","msub");
         exit 0;
       }elsif($temp =~ /^-v$/i){
-        print "\nmsub for Llandeilo.\n";
+        print "\nmsub for CRC.\n";
         print "Last modified by LMT on November 15, 2019.\n\n";
         exit 0;
 #
@@ -60,22 +58,29 @@
         $nproc=$1;
       }elsif($temp =~ /^-walltime=(\d+:\d+:\d+)$/i){
         $walltime=$1;
-      }elsif($temp =~ /^-m19_1$/i){
-        $m_module = "molpro/molpro-19.1";
-      }elsif($temp =~ /^-m18_2$/i){
-        $m_module = "molpro/molpro-18.2";
-      }elsif($temp =~ /^-m18_1$/i){
-        $m_module = "molpro/molpro-18.1";
+      }elsif($temp =~ /^-m19_2$/i){
+        $m_path = "/usr/local/molpro/2019.2.2";
       }elsif($temp =~ /^-m15_1$/i){
-        $m_module = "molpro/molpro-15.1";
+        $m_path = "/usr/local/molpro/2015.1.34";
 #
 #     Submission & queue controls...
       }elsif($temp =~ /^-sub$/i){
         $do_submission = 1;
       }elsif($temp =~ /^-nosub$/i){
         $do_submission = 0;
-      }elsif($temp =~ /^-workq$/i){
-        $queue_flag = "workq";
+      }elsif($temp =~ /^-shortq$/i){
+        $queue_flag = "short";
+      }elsif($temp =~ /^-longq$/i){
+        $queue_flag = "long";
+      }elsif($temp =~ /^-devq$/i){
+        $queue_flag = "dev";
+      }elsif($temp =~ /^-highmemq$/i){
+        $queue_flag = "fat";
+      }elsif($temp =~ /^-dx360q$/i){
+        $queue_flag = "long";
+        $dx360 = 1;
+        $run_in_scratch = 1;
+        $do_submission = 0;
       }elsif($temp =~ /^-runscratch$/i){
         $run_in_scratch = 1;
       }elsif($temp =~ /^-norunscratch$/i){
@@ -103,26 +108,44 @@
 #   Set NProcShared and Memory defaults based on the selected queue.
 #
     if($walltime=="00:00:00"){
-      if($queue_flag =~ "workq"){
+      if($queue_flag =~ "short"){
+        $walltime = "24:00:00";
+      }elsif($queue_flag =~ "long"){
+        $walltime = "168:00:00";
+      }elsif($queue_flag =~ "dev"){
         $walltime = "48:00:00";
+      }elsif($queue_flag =~ "fat"){
+        $walltime = "720:00:00";
       }else{
-        $walltime = "48:00:00";
+        $walltime = "24:00:00";
       }
     }
 
     if($nproc==0){
-      if($queue_flag =~ "workq"){
-        $nproc = 20;
+      if($queue_flag =~ "short"){
+        $nproc = 8;
+      }elsif($queue_flag =~ "long"){
+        $nproc = 8;
+      }elsif($queue_flag =~ "dev"){
+        $nproc = 8;
+      }elsif($queue_flag =~ "fat"){
+        $nproc = 12;
       }else{
-        $nproc = 20;
+        $nproc = 8;
       }
     }
 
     if($mem_amount=="0G"){
-      if($queue_flag =~ "workq"){
-        $mem_amount = "90G";
+      if($queue_flag =~ "short"){
+        $mem_amount = "12G";
+      }elsif($queue_flag =~ "long"){
+        $mem_amount = "12G";
+      }elsif($queue_flag =~ "dev"){
+        $mem_amount = "12G";
+      }elsif($queue_flag =~ "fat"){
+        $mem_amount = "42G";
       }else{
-        $mem_amount = "90G";
+        $mem_amount = "12G";
       }
     }
 #
@@ -183,7 +206,7 @@
       }
 #
 #     Add this job to the command list of Molpro executions.
-      push(@molpro_run,"molpro -s -d \$MY_SCRATCH $m_resources -o $output_file < $input_file > $log_file");
+      push(@molpro_run,"crc_node_print -d > $m_path/molpro -s -d \$MY_SCRATCH $m_resources -o $output_file < $input_file >> $log_file");
     }
 #
 #   Build two arrays that are used to handle file transfer to/from the
@@ -207,13 +230,28 @@
     print QSUBFILE "#PBS -l mem=$mem_requirement\n";
     print QSUBFILE "#PBS -l walltime=$walltime\n";
     print QSUBFILE "#PBS -l ncpus=$nproc\n";
+    print QSUBFILE "#PBS -l dx360\n" if $dx360;
     print QSUBFILE "#\n";
-    print QSUBFILE "# Set up the Molpro environment and prevent core files.\n";
-    print QSUBFILE "module load $m_module\n";
+    print QSUBFILE "# Prevent core files.\n";
     print QSUBFILE "ulimit -c 0\n";
+    if($dx360){
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Verify this node has local scratch.\n";
+      print QSUBFILE "if [ ! -d \"/local/scratch\" ]; then echo \"no local scratch dir\"; exit; fi\n";
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Create local scratch directory.\n";
+      print QSUBFILE "mkdir /local/scratch/\$USER\n";
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Verify local scratch directory.\n";
+      print QSUBFILE "if [ ! -d \"/local/scratch/\$USER\" ]; then echo \"could not write to local scratch dir\"; exit; fi\n";
+    }
     print QSUBFILE "#\n";
     print QSUBFILE "# Set the Molpro scratch directory to the job-specific SCRATCH directory.\n";
-    print QSUBFILE "export MY_SCRATCH=\"/tmp\"\n";
+    if($dx360){
+      print QSUBFILE "export MY_SCRATCH=\"/local/scratch/\$USER\"\n";
+    }else{
+      print QSUBFILE "export MY_SCRATCH=\"/scratch/global/\$USER\"\n";
+    }
     if($run_in_scratch){
       print QSUBFILE "#\n";
       print QSUBFILE "# Copy files to the scratch directory and then move there.\n";
@@ -245,6 +283,7 @@
       print QSUBFILE "cd \$PBS_O_WORKDIR\n";
       print QSUBFILE "cp -f \$MY_SCRATCH\/\* .\n";
     }
+    print QSUBFILE "rmdir \$MY_SCRATCH\n" if $dx360;
     close QSUBFILE;
 #
 #   Set-up command line to submit the job to PBS and then submit it...
@@ -256,6 +295,8 @@
     }else{
       print "Job NOT submitted. QSub file $qsub_file has been prepared.\n";
     }
+    print "DX360 QUEUE REQUIRES SUBMISSON WITH THE FOLLOWING COMMAND:\n";
+    print "qsub -q long -l nodes=1:ppn=8:dx360,walltime=168:00:0 <file>.sub\n";
     #
 # POD block...
 #
@@ -337,16 +378,30 @@ file (*.sub) is generated. A typical reason for disabling queue submission
 is for debugging or to add custom blocks of code to the submission script.
 By default, submission is enabled.
 
-=item B<-workq>
+=item B<-shortq>
+
+=item B<-longq>
+
+=item B<-devq>
+
+=item B<-highmemq>
 
 These switches are used to assign the queue to which the processed Molpro
 jobs are submitted.
 
 =over
 
-1. The work queue (known to the queue system as F<workq> and requested with the
-   switch B<-workq>). This queue has a 48 hour wall clock limit and a maximum of
-   10 jobs per user in the queue.
+1. The short queue (known to the queue system as F<short> and requested with the
+   switch B<-shortq>). This queue has a 24 hour wall clock limit.
+
+2. The long queue (known to the queue system as F<long> and requested with the 
+   switch B<-longq>). This queue has a 168 hour wall clock limit.
+
+3. The development queue (known to the queue system as F<dev> and requested
+   with the switch B<-devq>). This queue has a 48 wall clock limit.
+
+4. The high memory node queue (known to the queue system as F<fat> and requested
+   with the switch B<-highmemq>). This queue has a 720 hour wall clock limit.
 
 =back
 
@@ -382,23 +437,23 @@ Defaults specific to the B<CRC> version of B<gsub> include:
 
 =item B<-mem>
 
-The default memory requested is 90 GB. This is equivalent to using B<-mem=90G>.
+The default memory requested is 12 GB. This is equivalent to using B<-mem=12G>.
 
 =item B<-nproc>
 
-The default number of shared-memory processors is 20. This is equivalent to
-using B<-nproc=20>.
+The default number of shared-memory processors is 8. This is equivalent to
+using B<-nproc=8>.
 
 =item B<-walltime>
 
-The default walltime is 48 hours. This is equivalent to using B<-walltime="48:00:00">.
+The default walltime is 24 hours. This is equivalent to using B<-walltime="24:00:00">.
 
 =back
 
 
 =head1 CURRENT VERSION
 
-Version: B<msub> for B<F<Llandeilo>> submissions.
+Version: B<msub> for B<F<CRC>> submissions.
 
 Latest Modification(s): November 15, 2019.
 
