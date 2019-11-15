@@ -349,16 +349,12 @@ This switch is used to set the number of shared-memory processors requested
 by Molpro to the value B<F<N>>. The default value is determined by the
 script version.
 
-=item B<-m19_1>
-
-=item B<-m18_2>
-
-=item B<-g18_1>
+=item B<-m19_2>
 
 =item B<-g15_1>
 
 These switches control the version of Molpro to use, as well as the subversion.
-Molpro 19.1 is run by default. Other switches are available to request specific 
+Molpro 19.2 is run by default. Other switches are available to request specific 
 older versions of Molpro.
 
 =back
