@@ -34,6 +34,8 @@
     chomp($username);
     $do_submission = 1;
     $run_in_scratch = 0;
+    $global_scratch = 0;
+    $empty_scratch = 1;
     $queue_flag = "short";
     $mem_amount = "0GB";
     $nproc = 0;
@@ -58,7 +60,7 @@
         exit 0;
       }elsif($temp =~ /^-v$/i){
         print "\ngsub for the CRC.\n";
-        print "Last modified by LMT on September 28, 2017.\n\n";
+        print "Last modified by LMT on September 25, 2021.\n\n";
         exit 0;
 #
 #     Gaussian job setting controls...
@@ -109,6 +111,14 @@
         $run_in_scratch = 1;
       }elsif($temp =~ /^-norunscratch$/i){
         $run_in_scratch = 0;
+      }elsif($temp =~ /^-globalscratch$/i){
+        $global_scratch = 1;
+      }elsif($temp =~ /^-noglobalscratch$/i){
+        $global_scratch = 0;
+      }elsif($temp =~ /^-emptyscratch$/i){
+        $empty_scratch = 1;
+      }elsif($temp =~ /^-noemptyscratch$/i){
+        $empty_scratch = 0;
       }elsif($temp =~ /^-name=([a-zA-Z]\S+)$/i){
         $qstat_name=$1;
 #
@@ -219,9 +229,9 @@
 #
 #   Loop through @filelist and process each job one-at-a-time. This loop
 #   compiles a complete list of CHK, RWF, MAT and @ files that must be moved to
-#   the local node's disk and then moved back after the Gaussian work is
-#   complete. This is also the block of code that ensures the input files
-#   are compliant with our submission requirements.
+#   scratch and then moved back after the Gaussian work is complete. This is 
+#   also the block of code that ensures the input files are compliant with our 
+#   submission requirements.
 #
     foreach $input_file (@filelist){
       chomp($input_file);
@@ -264,11 +274,11 @@
     }
 #
 #   Build two arrays that are used to handle file transfer to/from the
-#   compute node's local disk. The first array, @sendfiles, lists all the
-#   files that must be moved TO the local disk before Gaussian is executed.
-#   The second array, @removefiles, lists all of the files that should be
-#   removed from the temperary directory before copying all files back to
-#   the submission working directory.
+#   scratch. The first array, @sendfiles, lists all the files that must 
+#   be moved TO scratch before Gaussian is executed. The second array, 
+#   @removefiles, lists all of the files that should be removed from the 
+#   temperary directory before copying all files back to the submission 
+#   working directory.
 #
     @sendfiles = @inputfiles;
     @removefiles = @inputfiles;
@@ -307,7 +317,12 @@
     print QSUBFILE "ulimit -c 0\n";
     print QSUBFILE "#\n";
     print QSUBFILE "# Set the Gaussian scratch directory to the job-specific SCRATCH directory.\n";
-    print QSUBFILE "export MY_SCRATCH=\"/scratch/global/\$USER\"\n";
+    if($global_scratch){
+      print QSUBFILE "export MY_SCRATCH=\`mktemp -u -p \"/scratch/global/\$USER\"\`\n";
+    }else{
+      print QSUBFILE "export MY_SCRATCH=\`mktemp -u -p \"/tmp\"\`\n";
+    }
+    print QSUBFILE "mkdir \$MY_SCRATCH\n";
     print QSUBFILE "export GAUSS_SCRDIR=\"\$MY_SCRATCH\"\n";
     if($run_in_scratch){
       print QSUBFILE "#\n";
@@ -349,6 +364,11 @@
       print QSUBFILE "# Return to the original working directory and copy back all of the Gaussian files.\n";
       print QSUBFILE "cd \$PBS_O_WORKDIR\n";
       print QSUBFILE "cp -f \$MY_SCRATCH\/\* .\n";
+    }
+    if($empty_scratch){
+      print QSUBFILE "#\n";
+      print QSUBFILE "# Remove scratch directory.\n";
+      print QSUBFILE "rm -rf \$MY_SCRATCH\n";
     }
     close QSUBFILE;
 #
@@ -581,14 +601,29 @@ By default, jobs are submitted to the short queue.
 
 =item B<-norunscratch>
 
-These switches determine whether the job is run from within the local
-compute node scratch directory (B<-runscratch>) or from the NFS mounted
-/home/ partition (B<-norunscratch>). When a job is run in the local scratch
+These switches determine whether the job is run from within the scratch 
+directory (B<-runscratch>) or from the NFS mounted /home/ partition 
+(B<-norunscratch>). When a job is run in the global or local scratch 
 directory, all files necessary for the calculations to run are copied to
 the scratch directory before running Gaussian and then copied back after
 all of the jobs complete. In either case, Gaussian scratch files are kept
-on the local scratch partition. By default, jobs are run in the local
-scratch directory.
+on the scratch partition. By default, jobs are run in the home directory.
+
+=item B<-globalscratch>
+
+=item B<-noglobalscratch>
+
+Specify whether the scratch directory used is the NFS mounted 
+/scratch/global/ directory (B<-globalscratch>) or on the local compute
+node mounted /scratch/local directory (B<-notglobalscratch>). By default, 
+the local compute node mounted scratch is used. 
+
+=item B<-emptyscratch>
+
+=item B<-noemptyscratch>
+
+Control of whether Gaussian scratch files are kept in scratch or deleted 
+after job terminates. By default, jobs in the scratch directory are removed.
 
 =item B<-name=F<A>>
 
@@ -631,12 +666,16 @@ The default walltime is 24 hours. This is equivalent to using B<-walltime="24:00
 
 Version: B<gsub> for B<F<CRC>> submissions.
 
-Latest Modification(s): September 28, 2017.
+Latest Modification(s): September 25, 2021.
 
 
 =head1 MODIFICATION HISTORY
 
 =over
+
+=item September 25, 2021  
+
+Add local vs global scratch options..
 
 =item September 28, 2017  
 
